@@ -1,0 +1,29 @@
+{
+  "name": "@devfellowship/skills",
+  "version": "0.1.0",
+  "description": "@devfellowship/skills — DFL skills + MCP/connections installer (wrapper over npx skills)",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "dfl-skills": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test --import tsx test/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

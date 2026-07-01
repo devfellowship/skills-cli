@@ -62,6 +62,17 @@ export function parseSkillId(id: string): SkillRef {
     if (!SKILL_ID_SEGMENT_RE.test(segment)) {
       throw new Error(`Invalid skill id segment "${segment}" in "${id}"`);
     }
+    // A leading "-" reaches downstream tooling (e.g. `npx skills`) as a flag.
+    if (segment.startsWith("-")) {
+      throw new Error(`Invalid skill id segment "${segment}" in "${id}": must not start with "-"`);
+    }
+    // The charset admits "." / ".." (path traversal) and dotfiles — reject them.
+    if (segment === "." || segment === "..") {
+      throw new Error(`Invalid skill id segment "${segment}" in "${id}": "." and ".." are not allowed`);
+    }
+    if (segment.startsWith(".") || segment.endsWith(".")) {
+      throw new Error(`Invalid skill id segment "${segment}" in "${id}": must not start or end with "."`);
+    }
   }
   return { owner, repo, skill };
 }

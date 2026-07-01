@@ -16,9 +16,14 @@ function deriveServerName(skill: McpSkill, id: string): string {
 /**
  * Validate the MCP url before we write our Bearer JWT header pointed at it.
  * A spoofed/tampered registry response could otherwise aim the next Claude
- * session's auth header at an attacker-controlled server. Hard-block non-https;
- * loudly warn (but don't block) when using the default DFL registry and the
- * host isn't under devfellowship.com.
+ * session's auth header at an attacker-controlled server. Hard-block non-https.
+ *
+ * On the DEFAULT DFL registry the host MUST be under devfellowship.com — a
+ * non-DFL host there means a tampered/spoofed response, so we hard-block it
+ * (writing our dfl-iam JWT to an arbitrary host is the exact threat). When the
+ * caller overrides the registry (SEARCH_API_BASE) we can't assert a host
+ * allowlist, so we still enforce https and print a clear "non-default registry"
+ * warning instead of silently trusting whatever host it returns.
  */
 export function assertSafeMcpUrl(rawUrl: string): void {
   let parsed: URL;
@@ -33,12 +38,20 @@ export function assertSafeMcpUrl(rawUrl: string): void {
   const usingDefaultRegistry = registryBase() === DEFAULT_REGISTRY.replace(/\/+$/, "");
   const host = parsed.hostname.toLowerCase();
   const isDflHost = host === "devfellowship.com" || host.endsWith(".devfellowship.com");
-  if (usingDefaultRegistry && !isDflHost) {
-    process.stderr.write(
-      `WARNING: default DFL registry returned a non-devfellowship.com MCP host "${host}". ` +
-        `Your dfl-iam JWT will be sent to it. Proceed only if you trust this host.\n`,
-    );
+  if (usingDefaultRegistry) {
+    if (!isDflHost) {
+      throw new Error(
+        `Refusing to write a Bearer token: the default DFL registry returned a ` +
+          `non-devfellowship.com MCP host "${host}". This indicates a tampered or spoofed ` +
+          `registry response. Aborting.`,
+      );
+    }
+    return;
   }
+  process.stderr.write(
+    `WARNING: using a non-default registry (SEARCH_API_BASE); host allowlist not enforced. ` +
+      `Your dfl-iam JWT will be sent to MCP host "${host}". Proceed only if you trust it.\n`,
+  );
 }
 
 export async function runInstallMcp(id: string): Promise<number> {

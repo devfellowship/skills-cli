@@ -10,16 +10,17 @@ const HELP = `@devfellowship/skills — DFL skills + MCP/connections installer
 Usage: dfl-skills <command> [args]
 
 Commands:
-  find <query>              Search the DFL skills registry
-  search <query>            Alias for find
-  add <owner/repo>          Install a skill (delegates to \`npx skills add\`, DFL registry)
-  update <owner/repo>       Update an installed skill (delegates to \`npx skills update\`)
-  install-mcp <id>          Install an MCP server (kind:mcp) into ~/.claude.json
-  install-connection <id>   Print a connection's reference + infisical run snippet
-  --help, -h                Show this help
+  find <query>                 Search the DFL skills registry
+  search <query>               Alias for find
+  add <owner/repo[@skill]>     Install a skill (delegates to \`npx skills add\`, DFL registry)
+  update <owner/repo[@skill]>  Update an installed skill (delegates to \`npx skills update\`)
+  install-mcp <id>             Install an MCP server (kind:mcp) into ~/.claude.json
+  install-connection <id>      Print a connection's reference + infisical run snippet
+  --help, -h                   Show this help
 
 Notes:
-  <id> is "owner/repo/skill".
+  <id> is "owner/repo/skill". For add/update, target one skill with
+  "owner/repo@skill" or the whole repo with "owner/repo".
   Registry override: set SEARCH_API_BASE to point anywhere (defaults to DFL).
   install-mcp writes an atomic, backed-up update to ~/.claude.json and never
   writes secrets. install-connection never writes secret values anywhere.

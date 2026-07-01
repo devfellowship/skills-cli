@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -8,6 +8,7 @@ import {
   assertValidServerName,
   buildHttpServer,
   mergeMcpServer,
+  previewMcpMerge,
 } from "../src/claudeJson.js";
 
 let dir: string;
@@ -106,10 +107,86 @@ test("rejects invalid server names", () => {
   assert.doesNotThrow(() => assertValidServerName("good-name-123"));
 });
 
+test("backup of an existing config is chmod 0600 (holds a JWT)", () => {
+  const path = fixture(
+    "claude-perm.json",
+    JSON.stringify({ mcpServers: { a: { type: "http", url: "x", headers: {} } } }),
+  );
+  const { backupPath } = mergeMcpServer({
+    path,
+    name: "b",
+    server: buildHttpServer("https://d.dev/mcp", "tok"),
+  });
+  assert.ok(backupPath);
+  assert.equal(statSync(backupPath as string).mode & 0o777, 0o600);
+});
+
+test("reports replaced=false for new server and true when overwriting", () => {
+  const path = fixture("claude-replaced.json", JSON.stringify({ mcpServers: {} }));
+  const first = mergeMcpServer({
+    path,
+    name: "srv",
+    server: buildHttpServer("https://a.dev/mcp", "t"),
+  });
+  assert.equal(first.replaced, false);
+  const second = mergeMcpServer({
+    path,
+    name: "srv",
+    server: buildHttpServer("https://b.dev/mcp", "t"),
+  });
+  assert.equal(second.replaced, true);
+});
+
+test("readConfig rethrows a clear error on invalid JSON", () => {
+  const path = fixture("claude-broken.json", "{ not json");
+  assert.throws(
+    () => mergeMcpServer({ path, name: "x", server: buildHttpServer("https://c.dev/mcp", "t") }),
+    /contains invalid JSON/,
+  );
+});
+
 test("produces valid JSON with trailing newline", () => {
   const path = fixture("claude-fmt.json", "{}");
   mergeMcpServer({ path, name: "fmt", server: buildHttpServer("https://c.dev/mcp", "t") });
   const raw = readFileSync(path, "utf8");
   assert.ok(raw.endsWith("\n"));
   assert.doesNotThrow(() => JSON.parse(raw));
+});
+
+test("previewMcpMerge reports replaced without touching disk", () => {
+  const original = JSON.stringify({ mcpServers: { existing: { type: "http" } } });
+  const path = fixture("claude-preview.json", original);
+
+  assert.equal(previewMcpMerge(path, "existing").replaced, true);
+  assert.equal(previewMcpMerge(path, "brand-new").replaced, false);
+  // preview is read-only: the file is byte-for-byte unchanged.
+  assert.equal(readFileSync(path, "utf8"), original);
+});
+
+test("second run preserves the original clean backup (timestamped, not clobbered)", () => {
+  const clean = JSON.stringify({ mcpServers: {}, marker: "pristine" });
+  const path = fixture("claude-backup.json", clean);
+
+  const first = mergeMcpServer({
+    path,
+    name: "srv",
+    server: buildHttpServer("https://a.dev/mcp", "t1"),
+  });
+  assert.ok(first.backupPath, "first run backs up the clean config");
+  // The first backup captured the pristine pre-CLI state.
+  assert.equal(JSON.parse(readFileSync(first.backupPath as string, "utf8")).marker, "pristine");
+  assert.ok(!("srv" in JSON.parse(readFileSync(first.backupPath as string, "utf8")).mcpServers));
+
+  const second = mergeMcpServer({
+    path,
+    name: "srv",
+    server: buildHttpServer("https://b.dev/mcp", "t2"),
+  });
+  assert.ok(second.backupPath);
+  assert.notEqual(second.backupPath, first.backupPath, "distinct timestamped backup files");
+  // The ORIGINAL clean backup still exists and still holds the pristine state —
+  // it was NOT overwritten by the already-modified config.
+  const stillClean = JSON.parse(readFileSync(first.backupPath as string, "utf8"));
+  assert.equal(stillClean.marker, "pristine");
+  assert.ok(!("srv" in stillClean.mcpServers), "original backup never gained the CLI's server");
 });

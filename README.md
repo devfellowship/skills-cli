@@ -36,9 +36,12 @@ npx @devfellowship/skills --help
 ### `install-mcp`
 
 1. Fetches the skill from the API and verifies `kind: mcp`.
-2. Best-effort `dfl-auth refresh` to renew the short-TTL dfl-iam JWT.
-3. Reads `access_token` from `~/.dfl-mcp/credentials.json`.
-4. **Atomically** merges into `~/.claude.json`:
+2. Announces the intended change (install vs. replace a same-named server)
+   **before** touching `~/.claude.json`. Pass `--dry-run` to print this and exit
+   without writing anything.
+3. Best-effort `dfl-auth refresh` to renew the short-TTL dfl-iam JWT.
+4. Reads `access_token` from `~/.dfl-mcp/credentials.json`.
+5. **Atomically** merges into `~/.claude.json`:
 
    ```jsonc
    "mcpServers": {
@@ -50,9 +53,11 @@ npx @devfellowship/skills --help
    }
    ```
 
-Atomic = write a temp sibling file, back up the original to `~/.claude.json.bak`,
-then `rename()` over the target. The server name is validated against
-`[a-z0-9-]`. It **never** writes `enableAllProjectMcpServers`.
+Atomic = write a temp sibling file, back up the original to a timestamped
+`~/.claude.json.<epoch>.bak` (never clobbering a prior backup, so the clean
+pre-CLI state survives repeated runs), then `rename()` over the target. The
+server name is validated against `[a-z0-9-]`. It **never** writes
+`enableAllProjectMcpServers`. Run `dfl-skills install-mcp --help` for flags.
 
 ### `install-connection`
 

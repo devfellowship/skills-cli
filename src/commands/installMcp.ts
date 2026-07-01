@@ -4,6 +4,7 @@ import {
   buildHttpServer,
   claudeJsonPath,
   mergeMcpServer,
+  previewMcpMerge,
 } from "../claudeJson.js";
 import { readAccessToken, refreshDflAuth } from "../credentials.js";
 import type { McpSkill } from "../types/mcpskill.js";
@@ -54,14 +55,22 @@ export function assertSafeMcpUrl(rawUrl: string): void {
   );
 }
 
-export async function runInstallMcp(id: string): Promise<number> {
+export interface InstallMcpOptions {
+  /** Print the intended change and exit without writing anything. */
+  dryRun?: boolean;
+  /** Test seam: override the registry fetch and target config path. */
+  fetchSkillFn?: typeof fetchSkill;
+  targetPath?: string;
+}
+
+export async function runInstallMcp(id: string, options: InstallMcpOptions = {}): Promise<number> {
   if (!id || id.trim().length === 0) {
-    process.stderr.write("Usage: dfl-skills install-mcp <owner/repo/skill>\n");
+    process.stderr.write("Usage: dfl-skills install-mcp <owner/repo/skill> [--dry-run]\n");
     return 1;
   }
 
   const ref = parseSkillId(id);
-  const skill = await fetchSkill(ref);
+  const skill = await (options.fetchSkillFn ?? fetchSkill)(ref);
 
   if (skill.kind !== "mcp") {
     process.stderr.write(
@@ -86,6 +95,22 @@ export async function runInstallMcp(id: string): Promise<number> {
   const serverName = deriveServerName(mcp, id);
   assertValidServerName(serverName);
 
+  const targetPath = options.targetPath ?? claudeJsonPath();
+
+  // Announce the intended change BEFORE writing so a same-named server is never
+  // clobbered before the user can react.
+  const { replaced: willReplace } = previewMcpMerge(targetPath, serverName);
+  process.stdout.write(
+    willReplace
+      ? `Will REPLACE existing MCP server "${serverName}" -> ${mcp.url} in ${targetPath}\n`
+      : `Will install new MCP server "${serverName}" -> ${mcp.url} in ${targetPath}\n`,
+  );
+
+  if (options.dryRun) {
+    process.stdout.write("Dry run: no changes written. Re-run without --dry-run to apply.\n");
+    return 0;
+  }
+
   process.stderr.write("> dfl-auth refresh (best-effort)\n");
   const refreshed = await refreshDflAuth();
   if (!refreshed) {
@@ -94,13 +119,12 @@ export async function runInstallMcp(id: string): Promise<number> {
 
   const jwt = readAccessToken();
   const server = buildHttpServer(mcp.url, jwt);
-  const targetPath = claudeJsonPath();
   const { backupPath, replaced } = mergeMcpServer({ path: targetPath, name: serverName, server });
 
   process.stdout.write(
     replaced
-      ? `Replacing existing MCP server "${serverName}"\n`
-      : `Installing new MCP server "${serverName}"\n`,
+      ? `Replaced existing MCP server "${serverName}"\n`
+      : `Installed new MCP server "${serverName}"\n`,
   );
   process.stdout.write(`Installed MCP server "${serverName}" -> ${mcp.url}\n`);
   process.stdout.write(`Updated ${targetPath}\n`);

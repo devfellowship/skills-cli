@@ -8,6 +8,7 @@ import {
   assertValidServerName,
   buildHttpServer,
   mergeMcpServer,
+  previewMcpMerge,
 } from "../src/claudeJson.js";
 
 let dir: string;
@@ -150,4 +151,42 @@ test("produces valid JSON with trailing newline", () => {
   const raw = readFileSync(path, "utf8");
   assert.ok(raw.endsWith("\n"));
   assert.doesNotThrow(() => JSON.parse(raw));
+});
+
+test("previewMcpMerge reports replaced without touching disk", () => {
+  const original = JSON.stringify({ mcpServers: { existing: { type: "http" } } });
+  const path = fixture("claude-preview.json", original);
+
+  assert.equal(previewMcpMerge(path, "existing").replaced, true);
+  assert.equal(previewMcpMerge(path, "brand-new").replaced, false);
+  // preview is read-only: the file is byte-for-byte unchanged.
+  assert.equal(readFileSync(path, "utf8"), original);
+});
+
+test("second run preserves the original clean backup (timestamped, not clobbered)", () => {
+  const clean = JSON.stringify({ mcpServers: {}, marker: "pristine" });
+  const path = fixture("claude-backup.json", clean);
+
+  const first = mergeMcpServer({
+    path,
+    name: "srv",
+    server: buildHttpServer("https://a.dev/mcp", "t1"),
+  });
+  assert.ok(first.backupPath, "first run backs up the clean config");
+  // The first backup captured the pristine pre-CLI state.
+  assert.equal(JSON.parse(readFileSync(first.backupPath as string, "utf8")).marker, "pristine");
+  assert.ok(!("srv" in JSON.parse(readFileSync(first.backupPath as string, "utf8")).mcpServers));
+
+  const second = mergeMcpServer({
+    path,
+    name: "srv",
+    server: buildHttpServer("https://b.dev/mcp", "t2"),
+  });
+  assert.ok(second.backupPath);
+  assert.notEqual(second.backupPath, first.backupPath, "distinct timestamped backup files");
+  // The ORIGINAL clean backup still exists and still holds the pristine state —
+  // it was NOT overwritten by the already-modified config.
+  const stillClean = JSON.parse(readFileSync(first.backupPath as string, "utf8"));
+  assert.equal(stillClean.marker, "pristine");
+  assert.ok(!("srv" in stillClean.mcpServers), "original backup never gained the CLI's server");
 });

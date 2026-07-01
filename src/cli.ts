@@ -18,6 +18,8 @@ Commands:
   install-connection <id>      Print a connection's reference + infisical run snippet
   --help, -h                   Show this help
 
+Run \`dfl-skills <command> --help\` for per-command usage.
+
 Notes:
   <id> is "owner/repo/skill". For add/update, target one skill with
   "owner/repo@skill" or the whole repo with "owner/repo".
@@ -28,11 +30,41 @@ Notes:
 Registry: ${registryBase()}
 `;
 
+const COMMAND_HELP: Record<string, string> = {
+  find: "Usage: dfl-skills find <query>\n\nSearch the DFL skills registry.\n",
+  search: "Usage: dfl-skills search <query>\n\nAlias for `find`. Search the DFL skills registry.\n",
+  add:
+    "Usage: dfl-skills add <owner/repo[@skill]>\n\n" +
+    "Install a skill (delegates to `npx skills add`, DFL registry).\n",
+  update:
+    "Usage: dfl-skills update <owner/repo[@skill]>\n\n" +
+    "Update an installed skill (delegates to `npx skills update`).\n",
+  "install-mcp":
+    "Usage: dfl-skills install-mcp <owner/repo/skill> [--dry-run] [--yes]\n\n" +
+    "Install an MCP server (kind:mcp) into ~/.claude.json.\n" +
+    "  --dry-run   Print the intended change and exit without writing.\n" +
+    "  --yes, -y   Apply without confirmation (default; write is non-interactive).\n",
+  "install-connection":
+    "Usage: dfl-skills install-connection <owner/repo/skill>\n\n" +
+    "Print a connection's reference + infisical run snippet. Writes no secrets.\n",
+};
+
+function wantsHelp(args: string[]): boolean {
+  return args.some((a) => a === "--help" || a === "-h");
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
     process.stdout.write(HELP);
+    return 0;
+  }
+
+  // A `--help`/`-h` in the ARG slot prints that subcommand's usage instead of
+  // being passed through as an id/query (which would throw or search literally).
+  if (command in COMMAND_HELP && wantsHelp(rest)) {
+    process.stdout.write(COMMAND_HELP[command] as string);
     return 0;
   }
 
@@ -44,8 +76,11 @@ async function main(argv: string[]): Promise<number> {
       return runSkillsPassthrough("add", rest);
     case "update":
       return runSkillsPassthrough("update", rest);
-    case "install-mcp":
-      return runInstallMcp(rest[0] ?? "");
+    case "install-mcp": {
+      const positional = rest.filter((a) => !a.startsWith("-"));
+      const dryRun = rest.includes("--dry-run");
+      return runInstallMcp(positional[0] ?? "", { dryRun });
+    }
     case "install-connection":
       return runInstallConnection(rest[0] ?? "");
     default:

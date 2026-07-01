@@ -22,8 +22,23 @@ export function registryBase(): string {
 /** A single skill-id segment: no path traversal, no shell/URL surprises. */
 const SKILL_ID_SEGMENT_RE = /^[a-z0-9._-]+$/;
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+/** A slow/unresponsive registry must not hang the CLI forever. */
+export const REGISTRY_TIMEOUT_MS = 25_000;
+
+export async function getJson<T>(url: string, timeoutMs = REGISTRY_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" }, signal: controller.signal });
+  } catch (err) {
+    if ((err as { name?: string }).name === "AbortError") {
+      throw new Error(`Registry timed out after ${timeoutMs / 1000}s: ${url}. Is it reachable?`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   const text = await res.text();
   let parsed: unknown;
   try {

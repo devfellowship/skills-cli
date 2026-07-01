@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { copyFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -25,7 +25,13 @@ function readConfig(path: string): Record<string, unknown> {
     return {};
   }
   if (raw.trim().length === 0) return {};
-  const parsed: unknown = JSON.parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`${path} contains invalid JSON: ${reason}`);
+  }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(`${path} is not a JSON object`);
   }
@@ -43,7 +49,7 @@ export function mergeMcpServer(args: {
   path: string;
   name: string;
   server: HttpMcpServer;
-}): { backupPath: string | null } {
+}): { backupPath: string | null; replaced: boolean } {
   const { path, name, server } = args;
   assertValidServerName(name);
 
@@ -54,6 +60,7 @@ export function mergeMcpServer(args: {
       ? { ...(existing as Record<string, unknown>) }
       : {};
 
+  const replaced = name in mcpServers;
   mcpServers[name] = server;
   config["mcpServers"] = mcpServers;
 
@@ -71,12 +78,14 @@ export function mergeMcpServer(args: {
     readFileSync(path);
     backupPath = `${path}.bak`;
     copyFileSync(path, backupPath);
+    // The backup holds the same Bearer JWT as the config — lock it down.
+    chmodSync(backupPath, 0o600);
   } catch {
     backupPath = null;
   }
 
   renameSync(tmpPath, path);
-  return { backupPath };
+  return { backupPath, replaced };
 }
 
 export function buildHttpServer(url: string, jwt: string): HttpMcpServer {

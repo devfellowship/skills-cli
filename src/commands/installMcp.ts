@@ -1,4 +1,4 @@
-import { fetchSkill, parseSkillId } from "../api.js";
+import { DEFAULT_REGISTRY, fetchSkill, parseSkillId, registryBase } from "../api.js";
 import {
   assertValidServerName,
   buildHttpServer,
@@ -11,6 +11,34 @@ import type { McpSkill } from "../types/mcpskill.js";
 function deriveServerName(skill: McpSkill, id: string): string {
   const candidate = skill.name ?? skill.skill ?? id.split("/").pop() ?? id;
   return candidate.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Validate the MCP url before we write our Bearer JWT header pointed at it.
+ * A spoofed/tampered registry response could otherwise aim the next Claude
+ * session's auth header at an attacker-controlled server. Hard-block non-https;
+ * loudly warn (but don't block) when using the default DFL registry and the
+ * host isn't under devfellowship.com.
+ */
+export function assertSafeMcpUrl(rawUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`MCP url is not a valid URL: "${rawUrl}"`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`MCP url must be https:// (got "${rawUrl}"). Refusing to write a Bearer token over ${parsed.protocol}//.`);
+  }
+  const usingDefaultRegistry = registryBase() === DEFAULT_REGISTRY.replace(/\/+$/, "");
+  const host = parsed.hostname.toLowerCase();
+  const isDflHost = host === "devfellowship.com" || host.endsWith(".devfellowship.com");
+  if (usingDefaultRegistry && !isDflHost) {
+    process.stderr.write(
+      `WARNING: default DFL registry returned a non-devfellowship.com MCP host "${host}". ` +
+        `Your dfl-iam JWT will be sent to it. Proceed only if you trust this host.\n`,
+    );
+  }
 }
 
 export async function runInstallMcp(id: string): Promise<number> {
@@ -40,6 +68,8 @@ export async function runInstallMcp(id: string): Promise<number> {
     return 1;
   }
 
+  assertSafeMcpUrl(mcp.url);
+
   const serverName = deriveServerName(mcp, id);
   assertValidServerName(serverName);
 
@@ -52,8 +82,13 @@ export async function runInstallMcp(id: string): Promise<number> {
   const jwt = readAccessToken();
   const server = buildHttpServer(mcp.url, jwt);
   const targetPath = claudeJsonPath();
-  const { backupPath } = mergeMcpServer({ path: targetPath, name: serverName, server });
+  const { backupPath, replaced } = mergeMcpServer({ path: targetPath, name: serverName, server });
 
+  process.stdout.write(
+    replaced
+      ? `Replacing existing MCP server "${serverName}"\n`
+      : `Installing new MCP server "${serverName}"\n`,
+  );
   process.stdout.write(`Installed MCP server "${serverName}" -> ${mcp.url}\n`);
   process.stdout.write(`Updated ${targetPath}\n`);
   if (backupPath) process.stdout.write(`Backup written to ${backupPath}\n`);

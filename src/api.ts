@@ -5,8 +5,22 @@ export const DEFAULT_REGISTRY = "https://skills.devfellowship.com";
 
 export function registryBase(): string {
   const fromEnv = process.env["SEARCH_API_BASE"];
-  return (fromEnv && fromEnv.trim().length > 0 ? fromEnv : DEFAULT_REGISTRY).replace(/\/+$/, "");
+  const base = (fromEnv && fromEnv.trim().length > 0 ? fromEnv : DEFAULT_REGISTRY).replace(
+    /\/+$/,
+    "",
+  );
+  // The registry response drives which MCP url we write a Bearer JWT to, so the
+  // registry itself must be reached over TLS — reject a plaintext base outright.
+  if (!base.startsWith("https://")) {
+    throw new Error(
+      `Registry base must be https:// (got "${base}"). Fix SEARCH_API_BASE.`,
+    );
+  }
+  return base;
 }
+
+/** A single skill-id segment: no path traversal, no shell/URL surprises. */
+const SKILL_ID_SEGMENT_RE = /^[a-z0-9._-]+$/;
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { headers: { accept: "application/json" } });
@@ -44,6 +58,11 @@ export function parseSkillId(id: string): SkillRef {
     throw new Error(`Expected skill id as "owner/repo/skill", got "${id}"`);
   }
   const [owner, repo, skill] = parts as [string, string, string];
+  for (const segment of [owner, repo, skill]) {
+    if (!SKILL_ID_SEGMENT_RE.test(segment)) {
+      throw new Error(`Invalid skill id segment "${segment}" in "${id}"`);
+    }
+  }
   return { owner, repo, skill };
 }
 

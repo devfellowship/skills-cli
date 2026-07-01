@@ -11,7 +11,15 @@ export function credentialsPath(): string {
 }
 
 export function readAccessToken(path = credentialsPath()): string {
-  const raw = readFileSync(path, "utf8");
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`No dfl-mcp credentials at ${path}. Run \`dfl-auth login\` first.`);
+    }
+    throw err;
+  }
   const parsed: unknown = JSON.parse(raw);
   if (
     typeof parsed !== "object" ||
